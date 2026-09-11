@@ -1,33 +1,39 @@
 <?php
-// connection.php
 
-class Connection {
-    private $host = 'db'; 
-    private $db_name = 'monitor_team_db';
-    private $username = 'root'; 
-    private $password = 'root'; 
-    private $conn;
+declare(strict_types=1);
 
-    public function getConnection() {
+namespace App\Database;
+
+use PDO;
+use PDOException;
+
+class Connection
+{
+    private string $host = 'db';
+    private string $dbName = 'monitor_team_db';
+    private string $username = 'root';
+    private string $password = 'root';
+    private ?PDO $conn = null;
+
+    public function getConnection(): ?PDO
+    {
         $this->conn = null;
 
         try {
-            $dsn = "mysql:host=" . $this->host . ";dbname=" . $this->db_name . ";charset=utf8mb4";
+            $dsn = "mysql:host={$this->host};dbname={$this->dbName};charset=utf8mb4";
             $this->conn = new PDO($dsn, $this->username, $this->password);
-            
-            // Configurar PDO para que lance excepciones en caso de errores SQL
             $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            
-            // Configurar el retorno de datos como arrays asociativos por defecto
             $this->conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-            
-        } catch(PDOException $exception) {
-            // Devolver error en formato JSON para que el Frontend lo interprete
+        } catch (PDOException $exception) {
+            // El manejo de errores se delegará posteriormente a Errors.php
             header('Content-Type: application/json');
             http_response_code(500);
             echo json_encode([
-                "ok" => false, 
-                "mensaje" => "Error de conexión a la base de datos: " . $exception->getMessage()
+                "Error" => [
+                    "Type" => 500,
+                    "Category" => "Database",
+                    "Description" => "Connection failed."
+                ]
             ]);
             exit;
         }
@@ -35,4 +41,3 @@ class Connection {
         return $this->conn;
     }
 }
-?>
