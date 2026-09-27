@@ -1,0 +1,312 @@
+{
+	"info": {
+		"_postman_id": "8f3b2a14-7d52-4e96-a94f-56d5b0a12e34",
+		"name": "Monitor Quintillizas - API Endpoints Collection",
+		"description": "Colección de pruebas para el Backend PHP del Proyecto Monitor (Sistemas Computacionales - 5to Semestre). Incluye casos de éxito, datos incorrectos, campos faltantes y validación de sesiones.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Autenticación (Auth)",
+			"item": [
+				{
+					"name": "1.1 Login Exitoso (admin / 1234)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin\",\n  \"password\": \"1234\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=login",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "login" }]
+						},
+						"description": "Prueba de autenticación con credenciales válidas. Retorna el usuario y un token de sesión."
+					}
+				},
+				{
+					"name": "1.2 Login Error - Contraseña Incorrecta",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin\",\n  \"password\": \"password_erroneo\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=login",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "login" }]
+						},
+						"description": "Debe retornar error HTTP 401 por credenciales incorrectas."
+					}
+				},
+				{
+					"name": "1.3 Login Error - Usuario Inexistente",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"usuario_fantasma\",\n  \"password\": \"1234\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=login",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "login" }]
+						},
+						"description": "Debe retornar error HTTP 401 por usuario no encontrado."
+					}
+				},
+				{
+					"name": "1.4 Login Error - Campos Vacíos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"\",\n  \"password\": \"\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=login",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "login" }]
+						},
+						"description": "Debe retornar error HTTP 400 por campos obligatorios faltantes."
+					}
+				},
+				{
+					"name": "1.5 Verificar Sesión Activa",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{session_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=check_session",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "check_session" }]
+						},
+						"description": "Comprueba si la sesión del cliente se encuentra abierta en el backend."
+					}
+				},
+				{
+					"name": "1.6 Cerrar Sesión (Logout)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{session_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=logout",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "logout" }]
+						},
+						"description": "Destruye la sesión del servidor."
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Telemetría y Métricas (Metrics)",
+			"item": [
+				{
+					"name": "2.1 Obtener Catálogo de Hosts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=get_hosts",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "get_hosts" }]
+						},
+						"description": "Retorna todos los servidores registrados en la base de datos."
+					}
+				},
+				{
+					"name": "2.2 Obtener Métricas en Vivo (Host 1)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=get_metrics&host_id=1",
+							"host": ["{{base_url}}"],
+							"query": [
+								{ "key": "action", "value": "get_metrics" },
+								{ "key": "host_id", "value": "1" }
+							]
+						},
+						"description": "Obtiene la lectura de CPU, RAM y Disco en tiempo real desde el script de Python y evalúa umbrales."
+					}
+				},
+				{
+					"name": "2.3 Consultar Historial de Métricas por Fechas",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=get_history&host_id=1&start_date=2026-01-01T00:00:00&end_date=2026-12-31T23:59:59",
+							"host": ["{{base_url}}"],
+							"query": [
+								{ "key": "action", "value": "get_history" },
+								{ "key": "host_id", "value": "1" },
+								{ "key": "start_date", "value": "2026-01-01T00:00:00" },
+								{ "key": "end_date", "value": "2026-12-31T23:59:59" }
+							]
+						},
+						"description": "Filtra registros de la tabla METRICS según el rango cronológico indicado."
+					}
+				},
+				{
+					"name": "2.4 Consultar Historial con Rango Sin Registros",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=get_history&host_id=1&start_date=2020-01-01T00:00:00&end_date=2020-01-02T00:00:00",
+							"host": ["{{base_url}}"],
+							"query": [
+								{ "key": "action", "value": "get_history" },
+								{ "key": "host_id", "value": "1" },
+								{ "key": "start_date", "value": "2020-01-01T00:00:00" },
+								{ "key": "end_date", "value": "2020-01-02T00:00:00" }
+							]
+						},
+						"description": "Verifica que el endpoint retorne un arreglo vacío cuando no hay muestras en ese rango."
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Gestión de Umbrales y Alertas (CRUD)",
+			"item": [
+				{
+					"name": "3.1 Listar Umbrales por Host",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=get_thresholds&host_id=1",
+							"host": ["{{base_url}}"],
+							"query": [
+								{ "key": "action", "value": "get_thresholds" },
+								{ "key": "host_id", "value": "1" }
+							]
+						},
+						"description": "Obtiene la lista de umbrales activos configurados para el host indicado."
+					}
+				},
+				{
+					"name": "3.2 Crear Nuevo Umbral (POST)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"host_id\": 1,\n  \"metric_name\": \"cpu_usage_pct\",\n  \"comparison_operator\": \">\",\n  \"threshold_value\": 75.5,\n  \"is_active\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=create_threshold",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "create_threshold" }]
+						},
+						"description": "Inserta una nueva regla de umbral en la tabla THRESHOLDS."
+					}
+				},
+				{
+					"name": "3.3 Modificar Umbral Existente (POST/PUT)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"threshold_id\": 1,\n  \"host_id\": 1,\n  \"metric_name\": \"cpu_usage_pct\",\n  \"comparison_operator\": \">\",\n  \"threshold_value\": 85.0,\n  \"is_active\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=update_threshold",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "update_threshold" }]
+						},
+						"description": "Actualiza el valor límite y operador de un umbral existente."
+					}
+				},
+				{
+					"name": "3.4 Eliminar Umbral (POST/DELETE)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"threshold_id\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=delete_threshold",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "delete_threshold" }]
+						},
+						"description": "Elimina un umbral registrado."
+					}
+				},
+				{
+					"name": "3.5 Listar Alertas Disparadas",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}?action=get_alerts",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "get_alerts" }]
+						},
+						"description": "Consulta el histórico de eventos disparados en la tabla ALERTS."
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000/services.php"
+		},
+		{
+			"key": "session_token",
+			"value": ""
+		}
+	]
+}
