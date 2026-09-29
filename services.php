@@ -252,6 +252,20 @@ elseif ($action === 'delete_threshold' && $_SERVER['REQUEST_METHOD'] === 'POST')
         Errors::databaseError("Error al eliminar el umbral.");
     }
 }
+
+// ==========================================
+// SERVICIO: CIERRE DE SESIÓN
+// ==========================================
+elseif ($action === 'logout' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    Session::destroy();
+    http_response_code(200);
+    echo json_encode([
+        "ok" => true,
+        "mensaje" => "Sesión cerrada correctamente."
+    ]);
+    exit;
+}
+
 // ==========================================
 // SERVICIO NO ENCONTRADO
 // ==========================================

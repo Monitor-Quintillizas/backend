@@ -44,4 +44,9 @@ class Errors
     {
         self::send(404, 4, 3, $message);
     }
+
+    public static function forbidden(string $message = "Acceso no permitido."): void
+    {
+        self::send(403, 5, 1, $message);
+    }
 }
