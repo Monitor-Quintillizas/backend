@@ -676,5 +676,5 @@ elseif ($action === 'logout' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // Ruta no encontrada
 else {
     Errors::notFound("Endpoint no encontrado o método HTTP no permitido para la acción especificada.");
->>>>>>> cac74677a2854a6d6674bb0ba37448a3d434933a
+
 }
