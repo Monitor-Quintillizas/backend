@@ -8,11 +8,11 @@ use App\Utils\Errors;
 use App\Utils\ValueValidation;
 use App\Utils\Tools;
 
-require_once __DIR__ . '/connection.php';
+require_once __DIR__ . '/database/connection.php';
 require_once __DIR__ . '/sessions/Session.php';
-require_once __DIR__ . '/Errors.php';
-require_once __DIR__ . '/ValueValidation.php';
-require_once __DIR__ . '/Tools.php';
+require_once __DIR__ . '/utils/Errors.php';
+require_once __DIR__ . '/utils/ValueValidation.php';
+require_once __DIR__ . '/utils/Tools.php';
 
 // ----------------------------------------------------------------------
 // 1. Configuración de CORS y Cabeceras HTTP (Responsabilidad de Red)
