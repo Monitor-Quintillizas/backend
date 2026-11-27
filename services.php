@@ -6,13 +6,49 @@ use App\Database\Connection;
 use App\Sessions\Session;
 use App\Utils\Errors;
 use App\Utils\ValueValidation;
-use App\Utils\Tools;
 
 require_once __DIR__ . '/database/connection.php';
 require_once __DIR__ . '/sessions/Session.php';
 require_once __DIR__ . '/utils/Errors.php';
 require_once __DIR__ . '/utils/ValueValidation.php';
-require_once __DIR__ . '/utils/Tools.php';
+
+loadEnvFile(__DIR__ . '/.env');
+
+function loadEnvFile(string $path): void {
+    if (!is_file($path) || !is_readable($path)) {
+        return;
+    }
+
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) {
+        return;
+    }
+
+    foreach ($lines as $line) {
+        $trimmed = trim($line);
+        if ($trimmed === '' || str_starts_with($trimmed, '#') || !str_contains($trimmed, '=')) {
+            continue;
+        }
+
+        [$key, $val] = explode('=', $trimmed, 2);
+        $key = trim($key);
+        $val = trim($val);
+
+        if ($key === '') {
+            continue;
+        }
+
+        if ((str_starts_with($val, '"') && str_ends_with($val, '"')) ||
+            (str_starts_with($val, "'") && str_ends_with($val, "'"))) {
+            $val = substr($val, 1, -1);
+        }
+
+        if (getenv($key) === false) {
+            putenv("{$key}={$val}");
+            $_ENV[$key] = $val;
+        }
+    }
+}
 
 // ----------------------------------------------------------------------
 // 1. Configuración de CORS y Cabeceras HTTP (Responsabilidad de Red)
@@ -21,7 +57,7 @@ $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
 header("Access-Control-Allow-Origin: {$origin}");
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-Agent-Key");
 header("Content-Type: application/json; charset=UTF-8");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -70,6 +106,10 @@ switch ($action) {
 
     case 'get_metrics':
         if ($method === 'GET') handleGetMetrics();
+        break;
+
+    case 'report_metrics':
+        if ($method === 'POST') handleReportMetrics();
         break;
 
     case 'get_history':
@@ -334,66 +374,207 @@ function handleGetAllUsersPerformance(): void {
     }
 }
 
+function getRequestHeader(string $name): string {
+    $serverKey = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+    if (isset($_SERVER[$serverKey]) && is_string($_SERVER[$serverKey])) {
+        return trim($_SERVER[$serverKey]);
+    }
+    if (function_exists('getallheaders')) {
+        $headers = getallheaders();
+        if (is_array($headers)) {
+            foreach ($headers as $k => $v) {
+                if (strcasecmp((string)$k, $name) === 0 && is_string($v)) {
+                    return trim($v);
+                }
+            }
+        }
+    }
+    return '';
+}
+
 function handleGetHosts(): void {
     try {
         $db = (new Connection())->getConnection();
-        $localHostname = gethostname() ?: "Mi-Computadora";
-        $localOs = (PHP_OS_FAMILY === 'Windows' ? 'Windows 11' : PHP_OS) . ' (' . php_uname('m') . ')';
+        $stmt = $db->query("
+            SELECT
+                h.host_id,
+                h.hostname,
+                h.ip_address,
+                h.operating_system,
+                h.registered_at,
+                MAX(m.measured_at) AS last_seen_at,
+                CURRENT_TIMESTAMP AS db_now
+            FROM HOSTS h
+            LEFT JOIN METRICS m ON h.host_id = m.host_id
+            GROUP BY h.host_id, h.hostname, h.ip_address, h.operating_system, h.registered_at
+            ORDER BY h.host_id ASC
+        ");
 
-        try {
-            $upHost = $db->prepare("UPDATE HOSTS SET hostname = :hname, operating_system = :os WHERE host_id = 1");
-            $upHost->execute([':hname' => "{$localHostname} (Mi PC)", ':os' => $localOs]);
-        } catch (\Exception $ex) {}
+        $rows = $stmt->fetchAll();
+        $hosts = [];
+        foreach ($rows as $row) {
+            $dbNowTs = !empty($row['db_now']) ? strtotime((string)$row['db_now']) : time();
+            $lastSeenAt = $row['last_seen_at'] ?? null;
+            $lastSeenTs = !empty($lastSeenAt) ? strtotime((string)$lastSeenAt) : false;
+            $secondsAgo = ($lastSeenTs !== false && $dbNowTs !== false) ? max(0, $dbNowTs - $lastSeenTs) : null;
+            $isOnline = ($secondsAgo !== null && $secondsAgo < 30);
 
-        $stmt = $db->query("SELECT host_id, hostname, ip_address, operating_system, registered_at FROM HOSTS ORDER BY host_id ASC");
+            $hosts[] = [
+                "host_id" => (int)$row['host_id'],
+                "hostname" => $row['hostname'],
+                "ip_address" => $row['ip_address'],
+                "operating_system" => $row['operating_system'],
+                "registered_at" => $row['registered_at'],
+                "last_seen_at" => $lastSeenAt,
+                "seconds_ago" => $secondsAgo,
+                "is_online" => $isOnline
+            ];
+        }
+
         http_response_code(200);
-        echo json_encode(["ok" => true, "data" => $stmt->fetchAll()]);
+        echo json_encode(["ok" => true, "data" => $hosts]);
         exit;
     } catch (\Exception $e) {
         Errors::databaseError("Error al consultar equipos.");
     }
 }
 
-function handleGetMetrics(): void {
-    if (!Session::isValid()) Errors::unauthorized("Debes iniciar sesión.");
+function handleReportMetrics(): void {
+    $expectedKey = (string)(getenv('AGENT_KEY') ?: ($_ENV['AGENT_KEY'] ?? $_SERVER['AGENT_KEY'] ?? ''));
+    $providedKey = getRequestHeader('X-Agent-Key');
 
-    $hostId = ValueValidation::validateId($_GET['host_id'] ?? 1) ?: 1;
-    $metrics = Tools::getPythonMetrics();
+    if ($expectedKey === '' || $providedKey === '' || !hash_equals($expectedKey, $providedKey)) {
+        Errors::unauthorized("Clave de agente inválida o faltante.");
+    }
+
+    $input = json_decode(file_get_contents("php://input"), true);
+    if (!is_array($input)) {
+        Errors::badRequest("Cuerpo JSON no válido.");
+    }
+
+    $hostname = ValueValidation::validateString($input['hostname'] ?? null, 1, 100);
+    $cpuPct = ValueValidation::validatePercentage($input['cpu_usage_pct'] ?? null);
+    $ramPct = ValueValidation::validatePercentage($input['ram_usage_pct'] ?? null);
+    $diskPct = ValueValidation::validatePercentage($input['disk_usage_pct'] ?? null);
+    $ramUsedMb = ValueValidation::validateNonNegativeFloat($input['ram_used_mb'] ?? null);
+
+    if ($hostname === null || $cpuPct === null || $ramPct === null || $diskPct === null || $ramUsedMb === null) {
+        Errors::badRequest("Datos inválidos: hostname no vacío, porcentajes entre 0 y 100 y ram_used_mb son obligatorios.");
+    }
+
+    $osRaw = $input['os_name'] ?? $input['operating_system'] ?? null;
+    $osName = 'Desconocido';
+    if ($osRaw !== null) {
+        if (!is_string($osRaw)) {
+            Errors::badRequest("El sistema operativo debe ser texto válido.");
+        }
+        $osTrimmed = trim($osRaw);
+        if ($osTrimmed !== '') {
+            $osName = substr($osTrimmed, 0, 50);
+        }
+    }
+
+    $optionalInts = [];
+    foreach (['cpu_cores_logical', 'cpu_cores_physical', 'uptime_seconds'] as $field) {
+        if (array_key_exists($field, $input) && $input[$field] !== null) {
+            $validated = ValueValidation::validateNonNegativeInt($input[$field]);
+            if ($validated === null) {
+                Errors::badRequest("Campo entero inválido: {$field}.");
+            }
+            $optionalInts[$field] = $validated;
+        } else {
+            $optionalInts[$field] = null;
+        }
+    }
+
+    $optionalFloats = [];
+    foreach (['ram_total_mb', 'ram_free_mb', 'disk_total_gb', 'disk_used_gb', 'disk_free_gb'] as $field) {
+        if (array_key_exists($field, $input) && $input[$field] !== null) {
+            $validated = ValueValidation::validateNonNegativeFloat($input[$field]);
+            if ($validated === null) {
+                Errors::badRequest("Campo numérico inválido: {$field}.");
+            }
+            $optionalFloats[$field] = $validated;
+        } else {
+            $optionalFloats[$field] = null;
+        }
+    }
+
+    $ipAddress = substr((string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'), 0, 45);
 
     try {
         $db = (new Connection())->getConnection();
-        $stmt = $db->prepare("INSERT INTO METRICS (host_id, cpu_usage_pct, ram_used_mb, ram_usage_pct, disk_usage_pct) VALUES (:host_id, :cpu, :ram_mb, :ram_pct, :disk_pct)");
-        $stmt->execute([
+
+        $hostStmt = $db->prepare("SELECT host_id FROM HOSTS WHERE hostname = :hostname LIMIT 1");
+        $hostStmt->execute([':hostname' => $hostname]);
+        $existingHost = $hostStmt->fetch();
+
+        if ($existingHost) {
+            $hostId = (int)$existingHost['host_id'];
+            $updHost = $db->prepare("UPDATE HOSTS SET ip_address = :ip, operating_system = :os WHERE host_id = :host_id");
+            $updHost->execute([':ip' => $ipAddress, ':os' => $osName, ':host_id' => $hostId]);
+        } else {
+            $insHost = $db->prepare("INSERT INTO HOSTS (hostname, ip_address, operating_system) VALUES (:hostname, :ip, :os)");
+            $insHost->execute([':hostname' => $hostname, ':ip' => $ipAddress, ':os' => $osName]);
+            $hostId = (int)$db->lastInsertId();
+        }
+
+        $insertSql = "
+            INSERT INTO METRICS (
+                host_id, cpu_usage_pct, cpu_cores_logical, cpu_cores_physical,
+                ram_total_mb, ram_used_mb, ram_free_mb, ram_usage_pct,
+                disk_total_gb, disk_used_gb, disk_free_gb, disk_usage_pct,
+                uptime_seconds
+            ) VALUES (
+                :host_id, :cpu, :cores_log, :cores_phys,
+                :ram_total, :ram_mb, :ram_free, :ram_pct,
+                :disk_total, :disk_used, :disk_free, :disk_pct,
+                :uptime
+            )
+        ";
+        $insertParams = [
             ':host_id' => $hostId,
-            ':cpu' => $metrics['cpu_usage_pct'],
-            ':ram_mb' => $metrics['ram_used_mb'],
-            ':ram_pct' => $metrics['ram_usage_pct'],
-            ':disk_pct' => $metrics['disk_usage_pct']
-        ]);
+            ':cpu' => $cpuPct,
+            ':cores_log' => $optionalInts['cpu_cores_logical'],
+            ':cores_phys' => $optionalInts['cpu_cores_physical'],
+            ':ram_total' => $optionalFloats['ram_total_mb'],
+            ':ram_mb' => $ramUsedMb,
+            ':ram_free' => $optionalFloats['ram_free_mb'],
+            ':ram_pct' => $ramPct,
+            ':disk_total' => $optionalFloats['disk_total_gb'],
+            ':disk_used' => $optionalFloats['disk_used_gb'],
+            ':disk_free' => $optionalFloats['disk_free_gb'],
+            ':disk_pct' => $diskPct,
+            ':uptime' => $optionalInts['uptime_seconds']
+        ];
+
+        try {
+            $stmt = $db->prepare($insertSql);
+            $stmt->execute($insertParams);
+        } catch (\PDOException $pdoEx) {
+            if ((string)$pdoEx->getCode() === '42S22' || str_contains($pdoEx->getMessage(), 'Unknown column') || str_contains($pdoEx->getMessage(), 'no column named')) {
+                Connection::ensureMetricsColumns($db);
+                $stmt = $db->prepare($insertSql);
+                $stmt->execute($insertParams);
+            } else {
+                throw $pdoEx;
+            }
+        }
 
         $metricId = (int)$db->lastInsertId();
 
-        $currentUserId = Session::get('user_id');
-        if ($currentUserId) {
-            try {
-                $userUpd = $db->prepare("UPDATE USERS SET last_seen_at = CURRENT_TIMESTAMP, current_host = :hname, last_cpu = :cpu, last_ram = :ram WHERE user_id = :uid");
-                $userUpd->execute([
-                    ':hname' => $metrics['hostname'] ?? "Host #{$hostId}",
-                    ':cpu' => $metrics['cpu_usage_pct'],
-                    ':ram' => $metrics['ram_usage_pct'],
-                    ':uid' => $currentUserId
-                ]);
-            } catch (\Exception $ex) {}
-        }
-
-        // Evaluar Umbrales y Alertas
+        $metricValues = [
+            'cpu_usage_pct' => $cpuPct,
+            'ram_usage_pct' => $ramPct,
+            'disk_usage_pct' => $diskPct
+        ];
         $thresholdStmt = $db->prepare("SELECT * FROM THRESHOLDS WHERE host_id = :host_id AND is_active = 1");
         $thresholdStmt->execute([':host_id' => $hostId]);
         $thresholds = $thresholdStmt->fetchAll();
         $triggeredAlerts = [];
 
         foreach ($thresholds as $th) {
-            $val = $metrics[$th['metric_name']] ?? null;
+            $val = $metricValues[$th['metric_name']] ?? null;
             $limit = (float)$th['threshold_value'];
             $op = $th['comparison_operator'];
             $isTriggered = false;
@@ -411,7 +592,13 @@ function handleGetMetrics(): void {
 
             if ($isTriggered) {
                 $msg = "Umbral excedido: {$th['metric_name']} ({$val}%) {$op} {$limit}%";
-                $triggeredAlerts[] = ["threshold_id" => $th['threshold_id'], "metric" => $th['metric_name'], "value" => $val, "limit" => $limit, "message" => $msg];
+                $triggeredAlerts[] = [
+                    "threshold_id" => (int)$th['threshold_id'],
+                    "metric" => $th['metric_name'],
+                    "value" => $val,
+                    "limit" => $limit,
+                    "message" => $msg
+                ];
 
                 try {
                     $alertInsert = $db->prepare("INSERT INTO ALERTS (threshold_id, metric_id, message, notification_status) VALUES (:th_id, :met_id, :msg, 'pending')");
@@ -423,7 +610,9 @@ function handleGetMetrics(): void {
         http_response_code(200);
         echo json_encode([
             "ok" => true,
-            "data" => $metrics,
+            "mensaje" => "Métricas registradas correctamente.",
+            "host_id" => $hostId,
+            "metric_id" => $metricId,
             "alert_triggered" => count($triggeredAlerts) > 0,
             "active_alerts" => $triggeredAlerts,
             "timestamp" => date('Y-m-d H:i:s')
@@ -431,6 +620,139 @@ function handleGetMetrics(): void {
         exit;
     } catch (\Exception $e) {
         Errors::databaseError("Error al registrar métricas: " . $e->getMessage());
+    }
+}
+
+function handleGetMetrics(): void {
+    if (!Session::isValid()) Errors::unauthorized("Debes iniciar sesión.");
+
+    $hostId = ValueValidation::validateId($_GET['host_id'] ?? 1);
+    if ($hostId <= 0) {
+        Errors::badRequest("ID de equipo inválido.");
+    }
+
+    try {
+        $db = (new Connection())->getConnection();
+        $selectSql = "
+            SELECT
+                m.metric_id,
+                m.host_id,
+                m.cpu_usage_pct,
+                m.cpu_cores_logical,
+                m.cpu_cores_physical,
+                m.ram_total_mb,
+                m.ram_used_mb,
+                m.ram_free_mb,
+                m.ram_usage_pct,
+                m.disk_total_gb,
+                m.disk_used_gb,
+                m.disk_free_gb,
+                m.disk_usage_pct,
+                m.uptime_seconds,
+                m.measured_at,
+                h.hostname,
+                h.ip_address,
+                h.operating_system AS os_name,
+                CURRENT_TIMESTAMP AS db_now
+            FROM METRICS m
+            INNER JOIN HOSTS h ON m.host_id = h.host_id
+            WHERE m.host_id = :host_id
+            ORDER BY m.measured_at DESC, m.metric_id DESC
+            LIMIT 1
+        ";
+
+        try {
+            $stmt = $db->prepare($selectSql);
+            $stmt->execute([':host_id' => $hostId]);
+            $row = $stmt->fetch();
+        } catch (\PDOException $pdoEx) {
+            if ((string)$pdoEx->getCode() === '42S22' || str_contains($pdoEx->getMessage(), 'Unknown column') || str_contains($pdoEx->getMessage(), 'no column named')) {
+                Connection::ensureMetricsColumns($db);
+                $stmt = $db->prepare($selectSql);
+                $stmt->execute([':host_id' => $hostId]);
+                $row = $stmt->fetch();
+            } else {
+                throw $pdoEx;
+            }
+        }
+
+        if (!$row) {
+            Errors::notFound("El equipo seleccionado no tiene lecturas registradas.");
+        }
+
+        $dbNowTs = !empty($row['db_now']) ? strtotime((string)$row['db_now']) : time();
+        $measuredTs = !empty($row['measured_at']) ? strtotime((string)$row['measured_at']) : false;
+        $secondsAgo = ($measuredTs !== false && $dbNowTs !== false) ? max(0, $dbNowTs - $measuredTs) : null;
+        $isOnline = ($secondsAgo !== null && $secondsAgo < 30);
+
+        $metrics = [
+            "metric_id" => (int)$row['metric_id'],
+            "host_id" => (int)$row['host_id'],
+            "cpu_usage_pct" => (float)$row['cpu_usage_pct'],
+            "cpu_cores_logical" => $row['cpu_cores_logical'] !== null ? (int)$row['cpu_cores_logical'] : null,
+            "cpu_cores_physical" => $row['cpu_cores_physical'] !== null ? (int)$row['cpu_cores_physical'] : null,
+            "ram_total_mb" => $row['ram_total_mb'] !== null ? (float)$row['ram_total_mb'] : null,
+            "ram_used_mb" => (float)$row['ram_used_mb'],
+            "ram_free_mb" => $row['ram_free_mb'] !== null ? (float)$row['ram_free_mb'] : null,
+            "ram_usage_pct" => (float)$row['ram_usage_pct'],
+            "disk_total_gb" => $row['disk_total_gb'] !== null ? (float)$row['disk_total_gb'] : null,
+            "disk_used_gb" => $row['disk_used_gb'] !== null ? (float)$row['disk_used_gb'] : null,
+            "disk_free_gb" => $row['disk_free_gb'] !== null ? (float)$row['disk_free_gb'] : null,
+            "disk_usage_pct" => (float)$row['disk_usage_pct'],
+            "uptime_seconds" => $row['uptime_seconds'] !== null ? (int)$row['uptime_seconds'] : null,
+            "measured_at" => $row['measured_at'],
+            "hostname" => $row['hostname'],
+            "ip_address" => $row['ip_address'],
+            "os_name" => $row['os_name'],
+            "seconds_ago" => $secondsAgo,
+            "is_online" => $isOnline
+        ];
+
+        $currentUserId = Session::get('user_id');
+        if ($currentUserId) {
+            try {
+                $userUpd = $db->prepare("UPDATE USERS SET last_seen_at = CURRENT_TIMESTAMP, current_host = :hname, last_cpu = :cpu, last_ram = :ram WHERE user_id = :uid");
+                $userUpd->execute([
+                    ':hname' => $metrics['hostname'],
+                    ':cpu' => $metrics['cpu_usage_pct'],
+                    ':ram' => $metrics['ram_usage_pct'],
+                    ':uid' => $currentUserId
+                ]);
+            } catch (\Exception $ex) {}
+        }
+
+        $alertStmt = $db->prepare("
+            SELECT a.alert_id, a.threshold_id, a.message, a.triggered_at, a.notification_status,
+                   t.metric_name, t.threshold_value
+            FROM ALERTS a
+            LEFT JOIN THRESHOLDS t ON a.threshold_id = t.threshold_id
+            WHERE a.metric_id = :metric_id
+        ");
+        $alertStmt->execute([':metric_id' => $metrics['metric_id']]);
+        $activeAlerts = [];
+        foreach ($alertStmt->fetchAll() as $a) {
+            $activeAlerts[] = [
+                "alert_id" => (int)$a['alert_id'],
+                "threshold_id" => (int)$a['threshold_id'],
+                "metric" => $a['metric_name'],
+                "limit" => $a['threshold_value'] !== null ? (float)$a['threshold_value'] : null,
+                "message" => $a['message'],
+                "triggered_at" => $a['triggered_at'],
+                "notification_status" => $a['notification_status']
+            ];
+        }
+
+        http_response_code(200);
+        echo json_encode([
+            "ok" => true,
+            "data" => $metrics,
+            "alert_triggered" => count($activeAlerts) > 0,
+            "active_alerts" => $activeAlerts,
+            "timestamp" => $row['measured_at']
+        ]);
+        exit;
+    } catch (\Exception $e) {
+        Errors::databaseError("Error al consultar métricas: " . $e->getMessage());
     }
 }
 

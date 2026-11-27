@@ -27,7 +27,44 @@ class Connection
         $this->port = getenv('DB_PORT') ?: '3306';
         $this->dbName = getenv('DB_NAME') ?: 'monitor_team_db';
         $this->username = getenv('DB_USER') ?: 'root';
-        $this->password = getenv('DB_PASS') !== false ? getenv('DB_PASS') : '';
+        $pass = getenv('DB_PASS');
+        if ($pass === false) {
+            $pass = getenv('DB_PASSWORD');
+        }
+        $this->password = $pass !== false ? $pass : '';
+    }
+
+    public static function ensureMetricsColumns(PDO $conn): void
+    {
+        $driver = $conn->getAttribute(PDO::ATTR_DRIVER_NAME);
+        $columns = $driver === 'sqlite'
+            ? [
+                "ALTER TABLE METRICS ADD COLUMN cpu_cores_logical INTEGER NULL",
+                "ALTER TABLE METRICS ADD COLUMN cpu_cores_physical INTEGER NULL",
+                "ALTER TABLE METRICS ADD COLUMN ram_total_mb REAL NULL",
+                "ALTER TABLE METRICS ADD COLUMN ram_free_mb REAL NULL",
+                "ALTER TABLE METRICS ADD COLUMN disk_total_gb REAL NULL",
+                "ALTER TABLE METRICS ADD COLUMN disk_used_gb REAL NULL",
+                "ALTER TABLE METRICS ADD COLUMN disk_free_gb REAL NULL",
+                "ALTER TABLE METRICS ADD COLUMN uptime_seconds INTEGER NULL"
+            ]
+            : [
+                "ALTER TABLE METRICS ADD COLUMN cpu_cores_logical INT NULL",
+                "ALTER TABLE METRICS ADD COLUMN cpu_cores_physical INT NULL",
+                "ALTER TABLE METRICS ADD COLUMN ram_total_mb DECIMAL(10,2) NULL",
+                "ALTER TABLE METRICS ADD COLUMN ram_free_mb DECIMAL(10,2) NULL",
+                "ALTER TABLE METRICS ADD COLUMN disk_total_gb DECIMAL(10,2) NULL",
+                "ALTER TABLE METRICS ADD COLUMN disk_used_gb DECIMAL(10,2) NULL",
+                "ALTER TABLE METRICS ADD COLUMN disk_free_gb DECIMAL(10,2) NULL",
+                "ALTER TABLE METRICS ADD COLUMN uptime_seconds BIGINT NULL"
+            ];
+
+        foreach ($columns as $sql) {
+            try {
+                $conn->exec($sql);
+            } catch (\Exception $ex) {
+            }
+        }
     }
 
     public function getConnection(): ?PDO
@@ -91,9 +128,17 @@ class Connection
                     metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     host_id INTEGER NOT NULL,
                     cpu_usage_pct REAL NOT NULL,
+                    cpu_cores_logical INTEGER NULL,
+                    cpu_cores_physical INTEGER NULL,
+                    ram_total_mb REAL NULL,
                     ram_used_mb REAL NOT NULL,
+                    ram_free_mb REAL NULL,
                     ram_usage_pct REAL NOT NULL,
+                    disk_total_gb REAL NULL,
+                    disk_used_gb REAL NULL,
+                    disk_free_gb REAL NULL,
                     disk_usage_pct REAL NOT NULL,
+                    uptime_seconds INTEGER NULL,
                     measured_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS THRESHOLDS (
@@ -125,6 +170,8 @@ class Connection
             foreach ($columns as $sql) {
                 try { $this->conn->exec($sql); } catch (\Exception $ex) {}
             }
+
+            self::ensureMetricsColumns($this->conn);
 
             // Asegurar usuario admin con contraseña '1234' y rol 'admin'
             $stmt = $this->conn->prepare("SELECT COUNT(*) FROM USERS WHERE username = 'admin'");

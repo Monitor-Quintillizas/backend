@@ -88,4 +88,79 @@ class ValueValidation
         
         return $val;
     }
+
+    /**
+     * Valida un porcentaje numérico en el rango [0, 100].
+     */
+    public static function validatePercentage(mixed $val): ?float
+    {
+        if (is_bool($val) || (!is_int($val) && !is_float($val) && !is_string($val))) {
+            return null;
+        }
+
+        if (is_string($val) && trim($val) === '') {
+            return null;
+        }
+
+        if (!is_numeric($val)) {
+            return null;
+        }
+
+        $num = (float) $val;
+        if (!is_finite($num) || $num < 0.0 || $num > 100.0) {
+            return null;
+        }
+
+        return round($num, 2);
+    }
+
+    /**
+     * Valida un número decimal mayor o igual a 0.
+     */
+    public static function validateNonNegativeFloat(mixed $val): ?float
+    {
+        if (is_bool($val) || (!is_int($val) && !is_float($val) && !is_string($val))) {
+            return null;
+        }
+
+        if (is_string($val) && trim($val) === '') {
+            return null;
+        }
+
+        if (!is_numeric($val)) {
+            return null;
+        }
+
+        $num = (float) $val;
+        if (!is_finite($num) || $num < 0.0) {
+            return null;
+        }
+
+        return round($num, 2);
+    }
+
+    /**
+     * Valida un entero mayor o igual a 0.
+     */
+    public static function validateNonNegativeInt(mixed $val): ?int
+    {
+        if (is_bool($val) || (!is_int($val) && !is_float($val) && !is_string($val))) {
+            return null;
+        }
+
+        if (is_string($val) && trim($val) === '') {
+            return null;
+        }
+
+        if (!is_numeric($val)) {
+            return null;
+        }
+
+        $num = (float) $val;
+        if (!is_finite($num) || $num < 0 || floor($num) !== $num) {
+            return null;
+        }
+
+        return (int) $num;
+    }
 }
