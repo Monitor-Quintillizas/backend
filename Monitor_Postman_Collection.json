@@ -141,11 +141,12 @@
 					}
 				},
 				{
-					"name": "2.2 Obtener Métricas en Vivo (Host 1)",
+					"name": "2.2 Obtener Últimas Métricas (Host 1)",
 					"request": {
 						"method": "GET",
 						"header": [
-							{ "key": "Accept", "value": "application/json" }
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{session_token}}" }
 						],
 						"url": {
 							"raw": "{{base_url}}?action=get_metrics&host_id=1",
@@ -155,11 +156,74 @@
 								{ "key": "host_id", "value": "1" }
 							]
 						},
-						"description": "Obtiene la lectura de CPU, RAM y Disco en tiempo real desde el script de Python y evalúa umbrales."
+						"description": "Lee la última lectura registrada en la base de datos para el host indicado. Responde 404 si el host aún no tiene lecturas."
 					}
 				},
 				{
-					"name": "2.3 Consultar Historial de Métricas por Fechas",
+					"name": "2.3 Reportar Métricas de Agente (Clave Válida - 200)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "X-Agent-Key", "value": "{{agent_key}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"hostname\": \"Equipo-Prueba-Postman\",\n  \"os_name\": \"Windows 11\",\n  \"cpu_usage_pct\": 34.5,\n  \"cpu_cores_logical\": 16,\n  \"cpu_cores_physical\": 8,\n  \"ram_total_mb\": 16384,\n  \"ram_used_mb\": 8192,\n  \"ram_free_mb\": 8192,\n  \"ram_usage_pct\": 50.0,\n  \"disk_total_gb\": 476.9,\n  \"disk_used_gb\": 210.5,\n  \"disk_free_gb\": 266.4,\n  \"disk_usage_pct\": 44.1,\n  \"uptime_seconds\": 3600\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=report_metrics",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "report_metrics" }]
+						},
+						"description": "Endpoint usado por el agente Python para reportar sus métricas. Registra/actualiza el host, inserta la métrica y evalúa umbrales."
+					}
+				},
+				{
+					"name": "2.4 Reportar Métricas - Clave Incorrecta (401)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "X-Agent-Key", "value": "clave_incorrecta" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"hostname\": \"Equipo-Prueba-Postman\",\n  \"os_name\": \"Windows 11\",\n  \"cpu_usage_pct\": 34.5,\n  \"ram_used_mb\": 8192,\n  \"ram_usage_pct\": 50.0,\n  \"disk_usage_pct\": 44.1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=report_metrics",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "report_metrics" }]
+						},
+						"description": "Debe retornar HTTP 401 Unauthorized cuando X-Agent-Key es inválida o falta."
+					}
+				},
+				{
+					"name": "2.5 Reportar Métricas - Datos Inválidos (400)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "X-Agent-Key", "value": "{{agent_key}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"hostname\": \"\",\n  \"cpu_usage_pct\": 150,\n  \"ram_used_mb\": 8192,\n  \"ram_usage_pct\": 50.0,\n  \"disk_usage_pct\": -5\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}?action=report_metrics",
+							"host": ["{{base_url}}"],
+							"query": [{ "key": "action", "value": "report_metrics" }]
+						},
+						"description": "Debe retornar HTTP 400 Bad Request cuando hostname está vacío o los porcentajes están fuera de [0, 100]."
+					}
+				},
+				{
+					"name": "2.6 Consultar Historial de Métricas por Fechas",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -179,7 +243,7 @@
 					}
 				},
 				{
-					"name": "2.4 Consultar Historial con Rango Sin Registros",
+					"name": "2.7 Consultar Historial con Rango Sin Registros",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -307,6 +371,10 @@
 		{
 			"key": "session_token",
 			"value": ""
+		},
+		{
+			"key": "agent_key",
+			"value": "cambia-esta-clave-secreta"
 		}
 	]
 }
