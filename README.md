@@ -229,3 +229,17 @@ Se incluye la colección oficial lista para importar en Postman: [`Monitor_Postm
 | 11| Alta de Umbral | `POST ?action=create_threshold` | JSON con métrica y límite | `201 Created` | ✅ Pasa |
 | 12| Modificación de Umbral | `POST ?action=update_threshold` | JSON con `threshold_id` existente | `200 OK` | ✅ Pasa |
 | 13| Eliminación de Umbral | `POST ?action=delete_threshold` | `threshold_id: 1` | `200 OK` | ✅ Pasa |
+
+## Commits
+
+Las issues de este proyecto están en `Monitor-Quintillizas/fronted`. Para que tus commits aparezcan en la issue, basta con escribir el número:
+
+```bash
+git commit -m "v1.2.0 #7"
+```
+
+El hook `.githooks/commit-msg` cambia `#7` por `Monitor-Quintillizas/fronted#7` al hacer el commit. Para activarlo, corre esto **una sola vez** en tu copia del repositorio (y otra vez si lo clonas en otra computadora):
+
+```bash
+git config core.hooksPath .githooks
+```
